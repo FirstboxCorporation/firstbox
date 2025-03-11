@@ -1,5 +1,6 @@
 // ignore_for_file: use_build_context_synchronously, unnecessary_null_comparison, unused_local_variable
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:ui';
 import 'package:camera/camera.dart';
@@ -11,6 +12,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:file_selector/file_selector.dart';
+
+import 'EncryptionDecryption.dart';
 
 void main() {
   runApp(const MyApp());
@@ -119,6 +122,7 @@ Future<void> requistPermissions() async {
       await Permission.microphone.isDenied) {
     var microphone = await Permission.microphone.request();
   }
+  /*
   if (await Permission.location.isPermanentlyDenied ||
       await Permission.location.isDenied) {
     var location = await Permission.location.request();
@@ -148,6 +152,7 @@ Future<void> requistPermissions() async {
       await Permission.storage.isDenied) {
     var storage = await Permission.storage.request();
   }
+  */
 }
 
 Future<String> convertImageTo64Base(Uint8List image) async {
@@ -244,9 +249,29 @@ class _HomePageState extends State<HomePage> {
               child: Text("Scan QR Code"),
             ),
             MaterialButton(
-              onPressed: () {
-                Navigator.of(context).push(MaterialPageRoute(
-                    builder: (context) => const ShowScanBarcodeArrive()));
+              onPressed: () async {
+                if (await Permission.camera.status.isPermanentlyDenied ||
+                    await Permission.camera.status.isDenied) {
+                  var camera = await Permission.camera.request();
+                  if (await Permission.camera.status.isGranted ||
+                      await Permission.camera.status.isLimited) {
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (context) => const ShowScanBarcodeArrive()));
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          Text("Permission isDenied"),
+                          Icon(Icons.close, color: Colors.red)
+                        ],
+                      ),
+                    ));
+                  }
+                } else {
+                  Navigator.of(context).push(MaterialPageRoute(
+                      builder: (context) => const ShowScanBarcodeArrive()));
+                }
               },
               child: const Icon(Icons.qr_code),
             ),
@@ -255,9 +280,35 @@ class _HomePageState extends State<HomePage> {
               child: Text("Take Picture"),
             ),
             MaterialButton(
-              onPressed: () {
-                Navigator.of(context).push(MaterialPageRoute(
-                    builder: (context) => const TakeHomePicturePage()));
+              onPressed: () async {
+                if (await Permission.camera.status.isPermanentlyDenied ||
+                    await Permission.camera.status.isDenied ||
+                    await Permission.microphone.status.isPermanentlyDenied ||
+                    await Permission.microphone.status.isDenied) {
+                  var camera = await Permission.camera.request();
+                  var microphone = await Permission.microphone.request();
+
+                  if ((await Permission.camera.status.isGranted ||
+                          await Permission.camera.status.isLimited) &&
+                      (await Permission.microphone.status.isPermanentlyDenied ||
+                          await Permission.microphone.status.isDenied)) {
+                    Navigator.of(context).push(MaterialPageRoute(
+                        builder: (context) => const TakeHomePicturePage()));
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                        children: [
+                          Text("Permission isDenied"),
+                          Icon(Icons.close, color: Colors.red)
+                        ],
+                      ),
+                    ));
+                  }
+                } else {
+                  Navigator.of(context).push(MaterialPageRoute(
+                      builder: (context) => const TakeHomePicturePage()));
+                }
               },
               child: const Icon(Icons.camera),
             ),
@@ -504,7 +555,7 @@ class TakeHomePicturePageState extends State<TakeHomePicturePage> {
   late CameraController _controller;
   List<CameraDescription>? cameras;
   @override
-  void initState() async {
+  void initState() {
     super.initState();
     WidgetsFlutterBinding.ensureInitialized();
     initializeCamera();
@@ -749,8 +800,332 @@ class SignaturePainter extends CustomPainter {
   bool shouldRepaint(SignaturePainter oldDelegate) => true;
 }
 
-/////////////////
 class ShowScanBarcodeArrive extends StatefulWidget {
+  const ShowScanBarcodeArrive({
+    super.key,
+  });
+  @override
+  State<ShowScanBarcodeArrive> createState() => ShowScanBarcodeArriveState();
+}
+
+class ShowScanBarcodeArriveState extends State<ShowScanBarcodeArrive> {
+  MobileScannerController cameraController = MobileScannerController();
+  String? encryptedBarcode;
+  bool start = false;
+
+  void showTheMessage(String text, Icon ico) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceAround,
+      children: [Text(text), ico],
+    )));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('QR Scanner'),
+        centerTitle: true,
+      ),
+      body: Stack(
+        alignment: Alignment.center,
+        children: [
+          MobileScanner(
+            controller: cameraController,
+            onDetect: (BarcodeCapture barcodeCapture) async {
+              if (start == true) {
+                return;
+              }
+              final List<Barcode> barcodes = barcodeCapture.barcodes;
+              if (barcodes.isNotEmpty) {
+                start = true;
+                setState(() {});
+                encryptedBarcode = barcodes.first.rawValue;
+                try {
+                  String barcodeText = EncryptionDecryptionQRCode.decryptQRCode(
+                      encryptedBarcode!);
+                  List<String> temp = barcodeText.split(',');
+                  if (temp.isNotEmpty && temp.length > 1) {
+                    if (temp[0].split(':').isNotEmpty &&
+                        temp[0].split(':').length > 1 &&
+                        temp[0].split(':')[0].contains('Tracking') == true) {
+                      int? n = int.tryParse(temp[0].split(':')[1]);
+                      if (n == null) {
+                        showTheMessage(
+                            "This QR Code is not from 1ST-BOX Corporation",
+                            const Icon(
+                              Icons.close,
+                              color: Colors.red,
+                            ));
+
+                        start = false;
+                        setState(() {});
+                        return;
+                      } else {
+                        bool found = false;
+                        await Navigator.of(context).push(MaterialPageRoute(
+                            builder: (context) => SaveBarcode(
+                                  code: barcodeText,
+                                )));
+                      }
+                    }
+                  } else {
+                    showTheMessage(
+                        "This QR Code is not from 1ST-BOX Corporation",
+                        const Icon(
+                          Icons.close,
+                          color: Colors.red,
+                        ));
+
+                    start = false;
+                    setState(() {});
+                    return;
+                  }
+                } catch (ex) {
+                  showTheMessage(
+                      "This QR Code is not from 1ST-BOX Corporation",
+                      const Icon(
+                        Icons.close,
+                        color: Colors.red,
+                      ));
+                  start = false;
+                  setState(() {});
+                  return;
+                }
+                start = false;
+                setState(() {});
+                return;
+              }
+            },
+          ),
+          Positioned(
+            top: 10,
+            child: buildControlButtons(),
+          ),
+        ],
+      ),
+    );
+  }
+
+/*
+  Widget buildResult() {
+    return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8), color: Colors.white24),
+        child: Text(barcode != null ? 'Result: $barcode' : 'Scan QR Code',
+            maxLines: 3));
+  }
+*/
+  Widget buildControlButtons() => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8), color: Colors.white24),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.max,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            IconButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              icon: const Icon(Icons.arrow_back),
+            ),
+            IconButton(
+              onPressed: () {
+                cameraController.toggleTorch();
+              },
+              icon: const Icon(Icons.flash_on),
+            ),
+            IconButton(
+              onPressed: () {
+                cameraController.switchCamera();
+              },
+              icon: const Icon(Icons.switch_camera),
+            ),
+          ],
+        ),
+      );
+}
+
+class SaveBarcode extends StatefulWidget {
+  const SaveBarcode({super.key, required this.code});
+  final String code;
+
+  @override
+  State<SaveBarcode> createState() => SaveBarcodeState();
+}
+
+class SaveBarcodeState extends State<SaveBarcode> {
+  bool save = false;
+  Map<String, String> splitQRString(String text) {
+    Map<String, String> qrString = {};
+
+    try {
+      List<String> temp = text.split(',');
+      for (int i = 0; i < temp.length; i++) {
+        qrString[temp[i].split(':')[0]] = temp[i].split(':')[1];
+      }
+      return qrString;
+    } catch (ex) {
+      return qrString;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Save Scanned Order'),
+        centerTitle: true,
+      ),
+      body: Center(
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(style: BorderStyle.solid, color: Colors.black),
+          ),
+          margin: const EdgeInsets.all(5),
+          child: FutureBuilder(
+              future: Future.value(splitQRString(widget.code)),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                } else if (snapshot.hasError) {
+                  return Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text("Error: ${snapshot.error}"),
+                      MaterialButton(
+                        onPressed: () {
+                          Navigator.of(context).pop();
+                        },
+                        child: const Text("Back"),
+                      )
+                    ],
+                  );
+                } else {
+                  if (snapshot.hasData == false ||
+                      snapshot.data == {} ||
+                      snapshot.data!.isEmpty) {
+                    return Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Text(
+                            "This QR Code is not from 1ST-BOX Corporation"),
+                        MaterialButton(
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                          },
+                          child: const Text("Back"),
+                        )
+                      ],
+                    );
+                  } else {
+                    List<String> infoKeys = snapshot.data!.keys.toList();
+                    List<String> infoValues = snapshot.data!.values.toList();
+
+                    return Column(
+                      mainAxisAlignment: MainAxisAlignment.start,
+                      children: [
+                        const Card(
+                          child: Text(
+                            'The Scanned Information:',
+                            textAlign: TextAlign.center,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const Divider(),
+                        Expanded(
+                          child: Container(
+                            margin: const EdgeInsets.all(5),
+                            child: ListView.builder(
+                              shrinkWrap: true,
+                              padding: const EdgeInsets.all(10),
+                              itemCount: infoKeys.length,
+                              itemBuilder: (context, index) {
+                                return Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceEvenly,
+                                  children: [
+                                    Card(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(8.0),
+                                        child: Text(
+                                          infoKeys[index],
+                                          textAlign: TextAlign.center,
+                                          softWrap: true,
+                                        ),
+                                      ),
+                                    ),
+                                    Card(
+                                      child: Padding(
+                                        padding: const EdgeInsets.all(8.0),
+                                        child: Text(
+                                          infoValues[index],
+                                          textAlign: TextAlign.center,
+                                          softWrap: true,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceAround,
+                          children: [
+                            MaterialButton(
+                              onPressed: () async {
+                                ScaffoldMessenger.of(context)
+                                    .showSnackBar(const SnackBar(
+                                        content: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceAround,
+                                  children: [
+                                    Text("Order Scanned Successfully"),
+                                    Icon(
+                                      Icons.done,
+                                      color: Colors.green,
+                                    )
+                                  ],
+                                )));
+                                Navigator.of(context).pop();
+                              },
+                              child: save == true
+                                  ? const CircularProgressIndicator()
+                                  : const Text("Save"),
+                            ),
+                            MaterialButton(
+                              onPressed: () {
+                                if (save == true) {
+                                  return;
+                                }
+                                Navigator.of(context).pop();
+                              },
+                              child: const Text("Back"),
+                            )
+                          ],
+                        )
+                      ],
+                    );
+                  }
+                }
+              }),
+        ),
+      ),
+    );
+  }
+}
+
+/////////////////
+//class ShowScanBarcodeArrive extends StatefulWidget {
+
+  /*
   const ShowScanBarcodeArrive({
     super.key,
   });
@@ -764,6 +1139,7 @@ class ShowScanBarcodeArriveState extends State<ShowScanBarcodeArrive> {
   bool start = false;
   bool save = false;
   String id = 'NULL';
+  /*
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -883,6 +1259,50 @@ class ShowScanBarcodeArriveState extends State<ShowScanBarcodeArrive> {
       ),
     );
   }
+*/
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('QR Scanner'),
+      ),
+      body: Stack(
+        alignment: Alignment.center,
+        children: [
+          MobileScanner(
+            controller: cameraController,
+            onDetect: (BarcodeCapture barcodeCapture) async {
+              if (start == true) {
+                return;
+              }
+              start = true;
+              setState(() {});
+              String id;
+              final List<Barcode> barcodes = barcodeCapture.barcodes;
+
+              if (barcodes.isNotEmpty) {
+                barcode = barcodes.first.rawValue;
+                List<String> temp = barcode!.split(',');
+
+                id = barcode!;
+              } else {
+                id = "NULL";
+              }
+              await Navigator.of(context).push(MaterialPageRoute(
+                  builder: (context) => SaveBarcode(code: id)));
+
+              start = false;
+              setState(() {});
+            },
+          ),
+          Positioned(
+            top: 10,
+            child: buildControlButtons(),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget buildControlButtons() => Container(
         padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -909,3 +1329,92 @@ class ShowScanBarcodeArriveState extends State<ShowScanBarcodeArrive> {
         ),
       );
 }
+
+class SaveBarcode extends StatefulWidget {
+  const SaveBarcode({super.key, required this.code});
+  final String code;
+  @override
+  State<SaveBarcode> createState() => SaveBarcodeState();
+}
+
+class SaveBarcodeState extends State<SaveBarcode> {
+  bool save = false;
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+        appBar: AppBar(
+          title: const Text('Save Scanned Order'),
+        ),
+        body: Center(
+          child: Card(
+            child: ListView(
+              shrinkWrap: true,
+              padding: const EdgeInsets.all(10),
+              children: [
+                widget.code != 'NULL'
+                    ? Card(
+                        child: Text(
+                          'The Information: ${widget.code}',
+                          textAlign: TextAlign.center,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      )
+                    : const Card(
+                        child: Text(
+                          "This QR Code Is Not From 1ST-BOX Orders",
+                          textAlign: TextAlign.center,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                const SizedBox(
+                  height: 5.0,
+                ),
+                widget.code != 'NULL'
+                    ? Row(
+                        children: [
+                          save == true
+                              ? const CircularProgressIndicator()
+                              : MaterialButton(
+                                  onPressed: () {
+                                    save = true;
+                                    setState(() {});
+                                    ScaffoldMessenger.of(context)
+                                        .showSnackBar(const SnackBar(
+                                      content: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceAround,
+                                        children: [
+                                          Text("Order Saved Successfully"),
+                                          Icon(Icons.done, color: Colors.green)
+                                        ],
+                                      ),
+                                    ));
+                                    Navigator.of(context).pop();
+                                  },
+                                  child: const Text("Save"),
+                                ),
+                          MaterialButton(
+                            onPressed: () {
+                              save = false;
+                              setState(() {});
+                              Navigator.of(context).pop();
+                            },
+                            child: const Text("Cancel"),
+                          ),
+                        ],
+                      )
+                    : MaterialButton(
+                        onPressed: () {
+                          save = false;
+                          setState(() {});
+                          Navigator.of(context).pop();
+                        },
+                        child: const Text("Cancel"),
+                      ),
+              ],
+            ),
+          ),
+        ));
+  }
+}
+*/
